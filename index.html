@@ -339,8 +339,17 @@
     .prod-tile .pstock{font-size:10px;}
   }
 </style>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 </head>
 <body>
+
+<div id="loading-overlay" style="position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:12px;">
+  <div style="width:40px;height:40px;border:4px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;"></div>
+  <div style="font-size:14px;color:var(--ink-soft);">Memuat data...</div>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg);}}</style>
 
 <button class="hamburger" id="hamburger">&#9776;</button>
 <div class="sidebar-overlay" id="sidebar-overlay"></div>
@@ -359,7 +368,7 @@
       <button data-view="laporan" data-tip="Laporan"><span class="ico">◈</span> <span>Laporan</span></button>
       <button data-view="pengaturan" data-tip="Data & Backup"><span class="ico">⚙</span> <span>Data & Backup</span></button>
     </nav>
-    <div class="sidebar-foot">Data tersimpan di browser perangkat ini (localStorage). Ekspor rutin untuk backup.</div>
+    <div class="sidebar-foot">Data tersimpan di cloud (Firebase). Ekspor rutin untuk backup.</div>
   </aside>
 
   <main class="main">
@@ -636,44 +645,91 @@
 </div>
 
 <script>
-/* ---------- Storage ---------- */
-const STORAGE_KEY = 'achillesgym_kantin_v1';
-let db = loadDB();
+/* ---------- Firebase ---------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyCYb5Nq76dbZBd02FeOK6rxL4BD0b2aK2Y",
+  authDomain: "kantinachillesgymhub.firebaseapp.com",
+  projectId: "kantinachillesgymhub",
+  storageBucket: "kantinachillesgymhub.firebasestorage.app",
+  messagingSenderId: "559185712720",
+  appId: "1:559185712720:web:42035067d9bb8da0f82355"
+};
+firebase.initializeApp(firebaseConfig);
+const fs = firebase.firestore();
+const fst = firebase.storage();
 
-function loadDB(){
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw) return JSON.parse(raw);
-  }catch(e){ console.error('Gagal memuat data', e); }
-  return seedData();
+/* ---------- Data ---------- */
+let db = { products: [], sales: [], stockLogs: [] };
+let _renderQueued = false;
+function queueRender(){
+  if(_renderQueued) return;
+  _renderQueued = true;
+  requestAnimationFrame(()=>{ _renderQueued = false; renderAll(); });
 }
-function saveDB(){
+
+async function initFirestore(){
   try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    const [productsSnap, salesSnap, logsSnap] = await Promise.all([
+      fs.collection('products').get(),
+      fs.collection('sales').get(),
+      fs.collection('stockLogs').get()
+    ]);
+    db.products = productsSnap.docs.map(d=>({id:d.id,...d.data()}));
+    db.sales = salesSnap.docs.map(d=>({id:d.id,...d.data()}));
+    db.stockLogs = logsSnap.docs.map(d=>({id:d.id,...d.data()}));
+    if(db.products.length === 0){
+      const seed = seedData();
+      const batch = fs.batch();
+      seed.products.forEach(p=>{
+        batch.set(fs.collection('products').doc(p.id), p);
+      });
+      await batch.commit();
+      db.products = seed.products;
+    }
+    fs.collection('products').onSnapshot(snap=>{
+      db.products = snap.docs.map(d=>({id:d.id,...d.data()}));
+      queueRender();
+    });
+    fs.collection('sales').onSnapshot(snap=>{
+      db.sales = snap.docs.map(d=>({id:d.id,...d.data()}));
+      queueRender();
+    });
+    fs.collection('stockLogs').onSnapshot(snap=>{
+      db.stockLogs = snap.docs.map(d=>({id:d.id,...d.data()}));
+      queueRender();
+    });
   }catch(e){
-    console.error('Gagal menyimpan:', e);
-    showToast('Gagal menyimpan data! Storage mungkin penuh.');
+    console.error('Gagal memuat dari Firestore:', e);
+    showToast('Gagal memuat data. Periksa koneksi internet.');
+  }finally{
+    document.getElementById('loading-overlay').style.display = 'none';
+    renderAll();
   }
 }
+
+/* ---------- Seed ---------- */
 function seedData(){
-  const now = Date.now();
   return {
     products: [
-      {id:'p1', name:'Es Teh Manis', category:'Minuman', sellPrice:4000, buyPrice:2000, stock:30, minStock:10, unit:'gelas'},
-      {id:'p2', name:'Air Mineral 600ml', category:'Minuman', sellPrice:4000, buyPrice:2800, stock:40, minStock:15, unit:'botol'},
-      {id:'p3', name:'Nasi Telur', category:'Makanan', sellPrice:12000, buyPrice:7000, stock:15, minStock:5, unit:'porsi'},
-      {id:'p4', name:'Roti Bakar', category:'Makanan', sellPrice:9000, buyPrice:5000, stock:10, minStock:4, unit:'porsi'},
-      {id:'p5', name:'Protein Bar', category:'Snack', sellPrice:15000, buyPrice:10000, stock:8, minStock:6, unit:'pcs'},
-      {id:'p6', name:'Pisang Cokelat', category:'Snack', sellPrice:6000, buyPrice:3000, stock:20, minStock:8, unit:'pcs'},
+      {id:'p1',name:'Es Teh Manis',category:'Minuman',sellPrice:4000,buyPrice:2000,stock:30,minStock:10,unit:'gelas'},
+      {id:'p2',name:'Air Mineral 600ml',category:'Minuman',sellPrice:4000,buyPrice:2800,stock:40,minStock:15,unit:'botol'},
+      {id:'p3',name:'Nasi Telur',category:'Makanan',sellPrice:12000,buyPrice:7000,stock:15,minStock:5,unit:'porsi'},
+      {id:'p4',name:'Roti Bakar',category:'Makanan',sellPrice:9000,buyPrice:5000,stock:10,minStock:4,unit:'porsi'},
+      {id:'p5',name:'Protein Bar',category:'Snack',sellPrice:15000,buyPrice:10000,stock:8,minStock:6,unit:'pcs'},
+      {id:'p6',name:'Pisang Cokelat',category:'Snack',sellPrice:6000,buyPrice:3000,stock:20,minStock:8,unit:'pcs'},
     ],
     sales: [],
-    stockLogs: [],
-    _seededAt: now
+    stockLogs: []
   };
 }
+
+/* ---------- Utils ---------- */
 function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9); }
 function rupiah(n){ return 'Rp' + Math.round(n).toLocaleString('id-ID'); }
 function todayStr(d=new Date()){ return d.toISOString().slice(0,10); }
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
 
 /* ---------- Error Toast ---------- */
 let toastTimer;
@@ -784,6 +840,7 @@ function updateFabBadge(){
 let cart = [];
 let paymentMethod = null;
 let paymentProofBase64 = null;
+let paymentProofFile = null;
 
 /* ---------- Payment Method Toggle ---------- */
 document.getElementById('pay-toggle').addEventListener('click', (e)=>{
@@ -813,6 +870,7 @@ document.getElementById('cart-proof').addEventListener('change', function(){
   const file = this.files[0];
   if(!file) return;
   if(file.size > 5 * 1024 * 1024){ showToast('Ukuran foto maks 5MB.'); return; }
+  paymentProofFile = file;
   const reader = new FileReader();
   reader.onload = (e)=>{
     paymentProofBase64 = e.target.result;
@@ -833,14 +891,23 @@ function renderPhotoPreview(){
   </div>`;
   document.getElementById('photo-remove-btn').addEventListener('click', ()=>{
     paymentProofBase64 = null;
+    paymentProofFile = null;
     document.getElementById('cart-proof').value = '';
     renderPhotoPreview();
     updateChange();
   });
 }
+async function uploadProofToStorage(file, saleId){
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = 'bukti/' + saleId + '_' + Date.now() + '.' + ext;
+  const ref = fst.ref(path);
+  await ref.put(file);
+  return await ref.getDownloadURL();
+}
 function clearPayment(){
   paymentMethod = null;
   paymentProofBase64 = null;
+  paymentProofFile = null;
   document.querySelectorAll('#pay-toggle button').forEach(b=>{
     b.classList.remove('active','active-cash','active-qris');
   });
@@ -988,41 +1055,52 @@ document.getElementById('btn-clear-cart').addEventListener('click', ()=>{
   cart=[]; document.getElementById('cart-paid').value=''; clearPayment(); renderCart();
 });
 
-document.getElementById('btn-checkout').addEventListener('click', function(){
+document.getElementById('btn-checkout').addEventListener('click', async function(){
+  const btn = this;
+  if(cart.length===0) return;
+  const total = cartTotal();
+  if(!paymentMethod){ showToast('Pilih metode pembayaran.'); return; }
+  if(!paymentProofBase64){ showToast('Unggah bukti pembayaran.'); return; }
+  if(paymentMethod === 'cash'){
+    const paid = parseFloat(document.getElementById('cart-paid').value) || 0;
+    if(paid < total){ showToast('Uang dibayar kurang dari total.'); return; }
+  }
+
+  btn.disabled = true;
   try{
-    if(cart.length===0) return;
-    const total = cartTotal();
-    if(!paymentMethod){ showToast('Pilih metode pembayaran.'); return; }
-    if(!paymentProofBase64){ showToast('Unggah bukti pembayaran.'); return; }
-    if(paymentMethod === 'cash'){
-      const paid = parseFloat(document.getElementById('cart-paid').value) || 0;
-      if(paid < total){ showToast('Uang dibayar kurang dari total.'); return; }
+    const paid = paymentMethod === 'cash' ? (parseFloat(document.getElementById('cart-paid').value) || 0) : total;
+    const saleId = uid('sale');
+
+    let proofUrl = '';
+    if(paymentProofFile){
+      proofUrl = await uploadProofToStorage(paymentProofFile, saleId);
     }
 
-    const paid = paymentMethod === 'cash' ? (parseFloat(document.getElementById('cart-paid').value) || 0) : total;
     const items = cart.map(c=>{
       const p = db.products.find(x=>x.id===c.productId);
       return {productId:p.id, name:p.name, qty:c.qty, price:p.sellPrice, subtotal:p.sellPrice*c.qty};
     });
-    items.forEach(i=>{
-      const p = db.products.find(x=>x.id===i.productId);
-      p.stock -= i.qty;
-      db.stockLogs.unshift({
-        id: uid('log'), datetime: new Date().toISOString(), productId:i.productId, type:'out', qty:i.qty,
-        note: 'Penjualan'
-      });
-    });
+
     const sale = {
-      id: uid('sale'),
       datetime: new Date().toISOString(),
       items, total, paid, change: paid-total,
       paymentMethod,
-      paymentProof: paymentProofBase64,
+      paymentProof: proofUrl || paymentProofBase64 || '',
       status: 'completed'
     };
-    db.sales.unshift(sale);
 
-    try{ saveDB(); }catch(e){}
+    const batch = fs.batch();
+    batch.set(fs.collection('sales').doc(saleId), sale);
+    items.forEach(i=>{
+      const p = db.products.find(x=>x.id===i.productId);
+      const newStock = p.stock - i.qty;
+      batch.update(fs.collection('products').doc(i.productId), {stock: newStock});
+      const logId = uid('log');
+      batch.set(fs.collection('stockLogs').doc(logId), {
+        datetime: new Date().toISOString(), productId:i.productId, type:'out', qty:i.qty, note:'Penjualan'
+      });
+    });
+    await batch.commit();
 
     cart = [];
     document.getElementById('cart-paid').value = '';
@@ -1034,6 +1112,9 @@ document.getElementById('btn-checkout').addEventListener('click', function(){
   }catch(err){
     console.error('Checkout error:', err);
     showToast('Terjadi kesalahan: ' + err.message);
+  }finally{
+    btn.disabled = false;
+    updateChange();
   }
 });
 
@@ -1069,13 +1150,11 @@ function renderStok(){
 }
 document.getElementById('stok-search').addEventListener('input', renderStok);
 
-function deleteProduct(id){
+async function deleteProduct(id){
   const p = db.products.find(x=>x.id===id);
   if(!p) return;
   if(!confirm(`Hapus produk "${p.name}"? Riwayat transaksi lama tidak akan terhapus.`)) return;
-  db.products = db.products.filter(x=>x.id!==id);
-  saveDB();
-  renderAll();
+  await fs.collection('products').doc(id).delete();
   showToast('Produk dihapus.');
 }
 
@@ -1134,7 +1213,7 @@ function openProductModal(id){
 }
 document.getElementById('btn-open-product').addEventListener('click', ()=>openProductModal(null));
 document.getElementById('btn-cancel-product').addEventListener('click', ()=>modalProduct.classList.remove('active'));
-document.getElementById('btn-save-product').addEventListener('click', ()=>{
+document.getElementById('btn-save-product').addEventListener('click', async ()=>{
   const id = document.getElementById('product-id').value;
   const name = document.getElementById('product-name').value.trim();
   const sellPrice = parseFloat(document.getElementById('product-sellprice').value);
@@ -1150,14 +1229,12 @@ document.getElementById('btn-save-product').addEventListener('click', ()=>{
     minStock: parseInt(document.getElementById('product-minstock').value) || 0,
   };
   if(id){
-    const p = db.products.find(x=>x.id===id);
-    Object.assign(p, data);
+    await fs.collection('products').doc(id).update(data);
   } else {
-    db.products.push({id: uid('p'), ...data});
+    const newId = uid('p');
+    await fs.collection('products').doc(newId).set({id: newId, ...data});
   }
-  saveDB();
   modalProduct.classList.remove('active');
-  renderAll();
   showToast('Produk disimpan.');
 });
 
@@ -1172,19 +1249,22 @@ function openRestockModal(){
 }
 document.getElementById('btn-open-restock').addEventListener('click', openRestockModal);
 document.getElementById('btn-cancel-restock').addEventListener('click', ()=>modalRestock.classList.remove('active'));
-document.getElementById('btn-save-restock').addEventListener('click', ()=>{
+document.getElementById('btn-save-restock').addEventListener('click', async ()=>{
   const productId = document.getElementById('restock-product').value;
   const qty = parseInt(document.getElementById('restock-qty').value);
   if(!qty || qty<=0){ showToast('Jumlah harus lebih dari 0.'); return; }
   const p = db.products.find(x=>x.id===productId);
-  p.stock += qty;
-  db.stockLogs.unshift({
-    id: uid('log'), datetime: new Date().toISOString(), productId, type:'in', qty,
-    note: document.getElementById('restock-note').value.trim() || 'Restock'
+  const newStock = p.stock + qty;
+  const note = document.getElementById('restock-note').value.trim() || 'Restock';
+
+  const batch = fs.batch();
+  batch.update(fs.collection('products').doc(productId), {stock: newStock});
+  batch.set(fs.collection('stockLogs').doc(uid('log')), {
+    datetime: new Date().toISOString(), productId, type:'in', qty, note
   });
-  saveDB();
+  await batch.commit();
+
   modalRestock.classList.remove('active');
-  renderAll();
   showToast(`Stok "${p.name}" bertambah ${qty}.`);
 });
 
@@ -1207,7 +1287,7 @@ function updateOpnamePreview(){
 document.getElementById('opname-product').addEventListener('change', updateOpnamePreview);
 document.getElementById('btn-open-opname').addEventListener('click', openOpnameModal);
 document.getElementById('btn-cancel-opname').addEventListener('click', ()=>modalOpname.classList.remove('active'));
-document.getElementById('btn-save-opname').addEventListener('click', ()=>{
+document.getElementById('btn-save-opname').addEventListener('click', async ()=>{
   const productId = document.getElementById('opname-product').value;
   const physStock = parseInt(document.getElementById('opname-physical').value);
   const reason = document.getElementById('opname-reason').value.trim();
@@ -1217,14 +1297,16 @@ document.getElementById('btn-save-opname').addEventListener('click', ()=>{
   const diff = physStock - p.stock;
   if(diff === 0){ showToast('Stok fisik sama dengan stok sistem.'); return; }
   const absDiff = Math.abs(diff);
-  db.stockLogs.unshift({
-    id: uid('log'), datetime: new Date().toISOString(), productId, type:'adj', qty:absDiff,
+
+  const batch = fs.batch();
+  batch.update(fs.collection('products').doc(productId), {stock: physStock});
+  batch.set(fs.collection('stockLogs').doc(uid('log')), {
+    datetime: new Date().toISOString(), productId, type:'adj', qty:absDiff,
     note: `${reason} (${diff > 0 ? '+' : ''}${diff} dari ${p.stock})`
   });
-  p.stock = physStock;
-  saveDB();
+  await batch.commit();
+
   modalOpname.classList.remove('active');
-  renderAll();
   showToast(`Stok "${p.name}" disesuaikan ke ${physStock}.`);
 });
 
@@ -1303,22 +1385,26 @@ function openSaleModal(id){
   modalSale.classList.add('active');
 }
 document.getElementById('btn-close-sale').addEventListener('click', ()=>modalSale.classList.remove('active'));
-document.getElementById('btn-void-sale').addEventListener('click', ()=>{
+document.getElementById('btn-void-sale').addEventListener('click', async ()=>{
   const s = db.sales.find(x=>x.id===currentSaleId);
   if(!s || s.status==='void') return;
   if(!confirm('Batalkan transaksi ini? Stok produk akan dikembalikan.')) return;
+
+  const batch = fs.batch();
+  batch.update(fs.collection('sales').doc(s.id), {status:'void'});
   s.items.forEach(i=>{
     const p = db.products.find(x=>x.id===i.productId);
-    if(p) p.stock += i.qty;
-    db.stockLogs.unshift({
-      id: uid('log'), datetime: new Date().toISOString(), productId:i.productId, type:'in', qty:i.qty,
+    if(p){
+      batch.update(fs.collection('products').doc(i.productId), {stock: p.stock + i.qty});
+    }
+    batch.set(fs.collection('stockLogs').doc(uid('log')), {
+      datetime: new Date().toISOString(), productId:i.productId, type:'in', qty:i.qty,
       note: `Pembatalan transaksi ${s.id}`
     });
   });
-  s.status = 'void';
-  saveDB();
+  await batch.commit();
+
   modalSale.classList.remove('active');
-  renderAll();
   showToast('Transaksi dibatalkan, stok dikembalikan.');
 });
 
@@ -1422,35 +1508,55 @@ document.getElementById('btn-import').addEventListener('click', ()=>{
   const fileInput = document.getElementById('import-file');
   const file = fileInput.files[0];
   if(!file){ showToast('Pilih file backup terlebih dahulu.'); return; }
-  if(!confirm('Impor akan menimpa seluruh data saat ini. Lanjutkan?')) return;
+  if(!confirm('Impor akan menimpa seluruh data saat ini di Firestore. Lanjutkan?')) return;
   const reader = new FileReader();
-  reader.onload = (e)=>{
+  reader.onload = async (e)=>{
     try{
       const parsed = JSON.parse(e.target.result);
       if(!parsed.products || !parsed.sales){ throw new Error('Format tidak dikenali'); }
-      db = parsed;
-      saveDB();
-      renderAll();
-      showToast('Data berhasil diimpor.');
+
+      const batch = fs.batch();
+      parsed.products.forEach(p=>{
+        batch.set(fs.collection('products').doc(p.id), p);
+      });
+      parsed.sales.forEach(s=>{
+        batch.set(fs.collection('sales').doc(s.id), s);
+      });
+      parsed.stockLogs.forEach(l=>{
+        batch.set(fs.collection('stockLogs').doc(l.id), l);
+      });
+      await batch.commit();
+
+      showToast('Data berhasil diimpor ke Firestore.');
     }catch(err){
       showToast('Gagal membaca file: format tidak valid.');
     }
   };
   reader.readAsText(file);
 });
-document.getElementById('btn-reset-all').addEventListener('click', ()=>{
-  if(!confirm('Hapus SEMUA data (produk, transaksi, log)? Tindakan ini tidak bisa dibatalkan.')) return;
-  db = seedData();
-  db.products = []; db.sales = []; db.stockLogs = [];
-  saveDB();
-  renderAll();
-  showToast('Semua data telah dihapus.');
-});
+document.getElementById('btn-reset-all').addEventListener('click', async ()=>{
+  if(!confirm('Hapus SEMUA data dari Firestore? Tindakan ini tidak bisa dibatalkan.')) return;
 
-/* ---------- Utils ---------- */
-function escapeHtml(str){
-  return String(str).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
+  const [productsSnap, salesSnap, logsSnap] = await Promise.all([
+    fs.collection('products').get(),
+    fs.collection('sales').get(),
+    fs.collection('stockLogs').get()
+  ]);
+  const batch = fs.batch();
+  productsSnap.docs.forEach(d=>batch.delete(d.ref));
+  salesSnap.docs.forEach(d=>batch.delete(d.ref));
+  logsSnap.docs.forEach(d=>batch.delete(d.ref));
+  await batch.commit();
+
+  const seed = seedData();
+  const batch2 = fs.batch();
+  seed.products.forEach(p=>{
+    batch2.set(fs.collection('products').doc(p.id), p);
+  });
+  await batch2.commit();
+
+  showToast('Semua data telah dihapus dan produk default dipulihkan.');
+});
 
 /* ---------- Render all ---------- */
 function renderAll(){
@@ -1460,7 +1566,9 @@ function renderAll(){
   renderRiwayat();
   renderLaporan();
 }
-renderAll();
+
+/* ---------- Init ---------- */
+initFirestore();
 </script>
 </body>
 </html>
