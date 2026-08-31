@@ -743,13 +743,26 @@ function showToast(msg){
 let successTimer;
 function showSuccess(msg, sub){
   clearTimeout(successTimer);
-  var el = document.getElementById('toast-success');
-  var backdrop = document.getElementById('toast-backdrop');
-  var subEl = document.getElementById('toast-success-sub');
-  if(!el || !backdrop) return;
-  subEl.textContent = sub || 'Pembayaran telah disimpan.';
-  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:9998;opacity:1;display:block;';
-  el.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(0);background:#fff;border:2px solid #7CB518;border-radius:14px;padding:20px 28px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.25);z-index:9999;pointer-events:auto;transition:transform .4s cubic-bezier(.34,1.56,.64,1);max-width:380px;width:90%;display:block;';
+  var old = document.getElementById('toast-success');
+  if(old) old.remove();
+  var oldBd = document.getElementById('toast-backdrop');
+  if(oldBd) oldBd.remove();
+
+  var backdrop = document.createElement('div');
+  backdrop.id = 'toast-backdrop';
+  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:9998;display:block;opacity:1;';
+  backdrop.addEventListener('click', hideSuccess);
+  document.body.appendChild(backdrop);
+
+  var el = document.createElement('div');
+  el.id = 'toast-success';
+  el.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(0);background:#fff;border:2px solid #7CB518;border-radius:14px;padding:20px 28px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.25);z-index:9999;pointer-events:auto;max-width:380px;width:90%;display:block;';
+  el.innerHTML = '<button style="position:absolute;top:8px;right:10px;width:28px;height:28px;border-radius:50%;border:none;background:transparent;color:#4B564E;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="hideSuccess()">&times;</button>'
+    + '<div style="width:52px;height:52px;border-radius:50%;background:#7CB518;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;box-shadow:0 4px 14px rgba(124,181,24,.4);">&#10003;</div>'
+    + '<div style="font-family:Space Grotesk,sans-serif;font-size:16px;font-weight:700;margin-bottom:4px;color:#14201A;">' + escapeHtml(msg) + '</div>'
+    + '<div id="toast-success-sub" style="font-size:13px;color:#4B564E;line-height:1.4;">' + escapeHtml(sub || 'Pembayaran telah disimpan.') + '</div>';
+  document.body.appendChild(el);
+
   successTimer = setTimeout(hideSuccess, 3000);
 }
 function hideSuccess(){
@@ -759,12 +772,10 @@ function hideSuccess(){
   if(backdrop) backdrop.style.opacity = '0';
   if(el) el.style.transform = 'translateX(-50%) translateY(-120px)';
   setTimeout(function(){
-    if(backdrop) backdrop.style.display = 'none';
-    if(el) el.style.display = 'none';
+    if(backdrop) backdrop.remove();
+    if(el) el.remove();
   }, 400);
 }
-document.getElementById('toast-backdrop').addEventListener('click', hideSuccess);
-document.getElementById('toast-close-btn').addEventListener('click', hideSuccess);
 
 /* ---------- Sidebar: Collapse/Expand (Desktop) ---------- */
 const sidebar = document.getElementById('sidebar');
