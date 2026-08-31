@@ -749,12 +749,12 @@ function showSuccess(msg, sub){
   if(!el || !backdrop) return;
   subEl.textContent = sub || 'Pembayaran telah disimpan.';
   backdrop.style.display = 'block';
+  backdrop.style.opacity = '0';
   el.style.display = 'block';
   el.style.transform = 'translateX(-50%) translateY(-120px)';
-  requestAnimationFrame(function(){
-    backdrop.style.opacity = '1';
-    el.style.transform = 'translateX(-50%) translateY(0)';
-  });
+  void el.offsetHeight;
+  backdrop.style.opacity = '1';
+  el.style.transform = 'translateX(-50%) translateY(0)';
   successTimer = setTimeout(hideSuccess, 3000);
 }
 function hideSuccess(){
