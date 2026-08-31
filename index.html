@@ -341,7 +341,6 @@
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 </head>
 <body>
 
@@ -656,7 +655,6 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const fs = firebase.firestore();
-const fst = firebase.storage();
 
 /* ---------- Data ---------- */
 let db = { products: [], sales: [], stockLogs: [] };
@@ -840,7 +838,6 @@ function updateFabBadge(){
 let cart = [];
 let paymentMethod = null;
 let paymentProofBase64 = null;
-let paymentProofFile = null;
 
 /* ---------- Payment Method Toggle ---------- */
 document.getElementById('pay-toggle').addEventListener('click', (e)=>{
@@ -870,7 +867,6 @@ document.getElementById('cart-proof').addEventListener('change', function(){
   const file = this.files[0];
   if(!file) return;
   if(file.size > 5 * 1024 * 1024){ showToast('Ukuran foto maks 5MB.'); return; }
-  paymentProofFile = file;
   const reader = new FileReader();
   reader.onload = (e)=>{
     paymentProofBase64 = e.target.result;
@@ -891,23 +887,14 @@ function renderPhotoPreview(){
   </div>`;
   document.getElementById('photo-remove-btn').addEventListener('click', ()=>{
     paymentProofBase64 = null;
-    paymentProofFile = null;
     document.getElementById('cart-proof').value = '';
     renderPhotoPreview();
     updateChange();
   });
 }
-async function uploadProofToStorage(file, saleId){
-  const ext = file.name.split('.').pop() || 'jpg';
-  const path = 'bukti/' + saleId + '_' + Date.now() + '.' + ext;
-  const ref = fst.ref(path);
-  await ref.put(file);
-  return await ref.getDownloadURL();
-}
 function clearPayment(){
   paymentMethod = null;
   paymentProofBase64 = null;
-  paymentProofFile = null;
   document.querySelectorAll('#pay-toggle button').forEach(b=>{
     b.classList.remove('active','active-cash','active-qris');
   });
@@ -1071,11 +1058,6 @@ document.getElementById('btn-checkout').addEventListener('click', async function
     const paid = paymentMethod === 'cash' ? (parseFloat(document.getElementById('cart-paid').value) || 0) : total;
     const saleId = uid('sale');
 
-    let proofUrl = '';
-    if(paymentProofFile){
-      proofUrl = await uploadProofToStorage(paymentProofFile, saleId);
-    }
-
     const items = cart.map(c=>{
       const p = db.products.find(x=>x.id===c.productId);
       return {productId:p.id, name:p.name, qty:c.qty, price:p.sellPrice, subtotal:p.sellPrice*c.qty};
@@ -1085,7 +1067,7 @@ document.getElementById('btn-checkout').addEventListener('click', async function
       datetime: new Date().toISOString(),
       items, total, paid, change: paid-total,
       paymentMethod,
-      paymentProof: proofUrl || paymentProofBase64 || '',
+      paymentProof: paymentProofBase64 || '',
       status: 'completed'
     };
 
