@@ -687,18 +687,18 @@ async function initFirestore(){
     fs.collection('products').onSnapshot(snap=>{
       db.products = snap.docs.map(d=>({id:d.id,...d.data()}));
       queueRender();
-    });
+    }, err=>console.error('Products sync error:', err));
     fs.collection('sales').onSnapshot(snap=>{
       db.sales = snap.docs.map(d=>({id:d.id,...d.data()}));
       queueRender();
-    });
+    }, err=>console.error('Sales sync error:', err));
     fs.collection('stockLogs').onSnapshot(snap=>{
       db.stockLogs = snap.docs.map(d=>({id:d.id,...d.data()}));
       queueRender();
-    });
+    }, err=>console.error('StockLogs sync error:', err));
   }catch(e){
     console.error('Gagal memuat dari Firestore:', e);
-    showToast('Gagal memuat data. Periksa koneksi internet.');
+    showToast('Gagal memuat: ' + (e.message || 'Periksa Firestore rules & koneksi.'));
   }finally{
     document.getElementById('loading-overlay').style.display = 'none';
     renderAll();
@@ -743,24 +743,24 @@ function showToast(msg){
 let successTimer;
 function showSuccess(msg, sub){
   clearTimeout(successTimer);
-  var old = document.getElementById('toast-success');
-  if(old) old.remove();
-  var oldBd = document.getElementById('toast-backdrop');
-  if(oldBd) oldBd.remove();
+  var existing = document.getElementById('toast-success');
+  if(existing) existing.remove();
+  var existingBd = document.getElementById('toast-backdrop');
+  if(existingBd) existingBd.remove();
 
-  var backdrop = document.createElement('div');
-  backdrop.id = 'toast-backdrop';
-  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:9998;display:block;opacity:1;';
-  backdrop.addEventListener('click', hideSuccess);
-  document.body.appendChild(backdrop);
+  var bd = document.createElement('div');
+  bd.id = 'toast-backdrop';
+  bd.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:9998;';
+  bd.onclick = hideSuccess;
+  document.body.appendChild(bd);
 
   var el = document.createElement('div');
   el.id = 'toast-success';
-  el.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(0);background:#fff;border:2px solid #7CB518;border-radius:14px;padding:20px 28px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.25);z-index:9999;pointer-events:auto;max-width:380px;width:90%;display:block;';
-  el.innerHTML = '<button style="position:absolute;top:8px;right:10px;width:28px;height:28px;border-radius:50%;border:none;background:transparent;color:#4B564E;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="hideSuccess()">&times;</button>'
-    + '<div style="width:52px;height:52px;border-radius:50%;background:#7CB518;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;box-shadow:0 4px 14px rgba(124,181,24,.4);">&#10003;</div>'
+  el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border:2px solid #7CB518;border-radius:14px;padding:24px 32px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.25);z-index:9999;max-width:360px;width:85%;';
+  el.innerHTML = '<div style="width:52px;height:52px;border-radius:50%;background:#7CB518;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:28px;color:#fff;">&#10003;</div>'
     + '<div style="font-family:Space Grotesk,sans-serif;font-size:16px;font-weight:700;margin-bottom:4px;color:#14201A;">' + escapeHtml(msg) + '</div>'
-    + '<div id="toast-success-sub" style="font-size:13px;color:#4B564E;line-height:1.4;">' + escapeHtml(sub || 'Pembayaran telah disimpan.') + '</div>';
+    + '<div style="font-size:13px;color:#4B564E;line-height:1.4;">' + escapeHtml(sub || 'Pembayaran telah disimpan.') + '</div>'
+    + '<button onclick="hideSuccess()" style="margin-top:14px;padding:8px 20px;border:none;background:#7CB518;color:#fff;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;">OK</button>';
   document.body.appendChild(el);
 
   successTimer = setTimeout(hideSuccess, 3000);
@@ -768,13 +768,9 @@ function showSuccess(msg, sub){
 function hideSuccess(){
   clearTimeout(successTimer);
   var el = document.getElementById('toast-success');
-  var backdrop = document.getElementById('toast-backdrop');
-  if(backdrop) backdrop.style.opacity = '0';
-  if(el) el.style.transform = 'translateX(-50%) translateY(-120px)';
-  setTimeout(function(){
-    if(backdrop) backdrop.remove();
-    if(el) el.remove();
-  }, 400);
+  var bd = document.getElementById('toast-backdrop');
+  if(bd) bd.remove();
+  if(el) el.remove();
 }
 
 /* ---------- Sidebar: Collapse/Expand (Desktop) ---------- */
@@ -873,14 +869,33 @@ document.getElementById('cart-proof').addEventListener('change', function(){
   const file = this.files[0];
   if(!file) return;
   if(file.size > 5 * 1024 * 1024){ showToast('Ukuran foto maks 5MB.'); return; }
-  const reader = new FileReader();
-  reader.onload = (e)=>{
-    paymentProofBase64 = e.target.result;
+  compressImage(file, 800, 0.6).then(compressed=>{
+    paymentProofBase64 = compressed;
     renderPhotoPreview();
     updateChange();
-  };
-  reader.readAsDataURL(file);
+  });
 });
+function compressImage(file, maxDim, quality){
+  return new Promise((resolve)=>{
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let w = img.width, h = img.height;
+        if(w > maxDim || h > maxDim){
+          if(w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
+          else { w = Math.round(w * maxDim / h); h = maxDim; }
+        }
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(c.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 function renderPhotoPreview(){
   const container = document.getElementById('photo-preview-container');
   if(!paymentProofBase64){
@@ -1060,6 +1075,7 @@ document.getElementById('btn-checkout').addEventListener('click', async function
   }
 
   btn.disabled = true;
+  btn.textContent = 'Menyimpan...';
   try{
     const paid = paymentMethod === 'cash' ? (parseFloat(document.getElementById('cart-paid').value) || 0) : total;
     const saleId = uid('sale');
@@ -1077,18 +1093,15 @@ document.getElementById('btn-checkout').addEventListener('click', async function
       status: 'completed'
     };
 
-    const batch = fs.batch();
-    batch.set(fs.collection('sales').doc(saleId), sale);
-    items.forEach(i=>{
+    await fs.collection('sales').doc(saleId).set(sale);
+
+    for(const i of items){
       const p = db.products.find(x=>x.id===i.productId);
-      const newStock = p.stock - i.qty;
-      batch.update(fs.collection('products').doc(i.productId), {stock: newStock});
-      const logId = uid('log');
-      batch.set(fs.collection('stockLogs').doc(logId), {
+      await fs.collection('products').doc(i.productId).update({stock: p.stock - i.qty});
+      await fs.collection('stockLogs').doc(uid('log')).set({
         datetime: new Date().toISOString(), productId:i.productId, type:'out', qty:i.qty, note:'Penjualan'
       });
-    });
-    await batch.commit();
+    }
 
     cart = [];
     document.getElementById('cart-paid').value = '';
@@ -1096,12 +1109,13 @@ document.getElementById('btn-checkout').addEventListener('click', async function
     renderKasir();
 
     const payLabel = sale.paymentMethod === 'qris' ? 'QRIS' : 'Tunai';
-    showSuccess('Transaksi Berhasil!', payLabel + ' - ' + rupiah(total) + ' telah disimpan.');
+    showSuccess('Transaksi Berhasil!', payLabel + ' - ' + rupiah(total));
   }catch(err){
     console.error('Checkout error:', err);
-    showToast('Terjadi kesalahan: ' + err.message);
+    showToast('Gagal menyimpan: ' + err.message);
   }finally{
     btn.disabled = false;
+    btn.textContent = 'Selesaikan Transaksi';
     updateChange();
   }
 });
