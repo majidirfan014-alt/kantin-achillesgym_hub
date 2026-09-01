@@ -384,17 +384,10 @@
         <div class="card stat"><div class="label">Laba kotor hari ini</div><div class="value profit" id="stat-profit">Rp0</div></div>
         <div class="card stat"><div class="label">Transaksi hari ini</div><div class="value" id="stat-trx">0</div></div>
         <div class="card stat"><div class="label">Item terjual hari ini</div><div class="value" id="stat-items">0</div></div>
-        <div class="card stat"><div class="label">Produk stok menipis</div><div class="value warn" id="stat-lowstock">0</div></div>
       </div>
-      <div class="grid" style="grid-template-columns:1.2fr 1fr;">
-        <div class="card">
-          <h3 style="margin-top:0;">Produk terlaris hari ini</h3>
-          <table><thead><tr><th>Produk</th><th>Terjual</th><th>Omzet</th><th>Laba</th></tr></thead><tbody id="top-products"></tbody></table>
-        </div>
-        <div class="card">
-          <h3 style="margin-top:0;">Stok menipis</h3>
-          <table><thead><tr><th>Produk</th><th>Stok</th><th>Min</th></tr></thead><tbody id="low-stock-list"></tbody></table>
-        </div>
+      <div class="card">
+        <h3 style="margin-top:0;">Produk terlaris hari ini</h3>
+        <table><thead><tr><th>Produk</th><th>Terjual</th><th>Omzet</th><th>Laba</th></tr></thead><tbody id="top-products"></tbody></table>
       </div>
     </section>
 
@@ -456,7 +449,7 @@
       </div>
       <div class="card">
         <table>
-          <thead><tr><th>Produk</th><th>Kategori</th><th>Harga Jual</th><th>Stok</th><th>Min</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Produk</th><th>Kategori</th><th>Harga Jual</th><th>Stok</th><th>Status</th><th></th></tr></thead>
           <tbody id="product-table"></tbody>
         </table>
       </div>
@@ -577,10 +570,7 @@
       <div class="field"><label>Harga jual (Rp)</label><input type="number" id="product-sellprice" min="0"></div>
       <div class="field"><label>Harga beli (Rp, opsional)</label><input type="number" id="product-buyprice" min="0"></div>
     </div>
-    <div class="field-row">
-      <div class="field"><label>Stok awal</label><input type="number" id="product-stock" min="0"></div>
-      <div class="field"><label>Stok minimum</label><input type="number" id="product-minstock" min="0" value="5"></div>
-    </div>
+    <div class="field"><label>Stok awal</label><input type="number" id="product-stock" min="0"></div>
     <div class="modal-foot">
       <button class="btn ghost" id="btn-cancel-product">Batal</button>
       <button class="btn primary" id="btn-save-product">Simpan</button>
@@ -711,12 +701,12 @@ async function initFirestore(){
 function seedData(){
   return {
     products: [
-      {id:'p1',name:'Es Teh Manis',category:'Minuman',sellPrice:4000,buyPrice:2000,stock:30,minStock:10,unit:'gelas'},
-      {id:'p2',name:'Air Mineral 600ml',category:'Minuman',sellPrice:4000,buyPrice:2800,stock:40,minStock:15,unit:'botol'},
-      {id:'p3',name:'Nasi Telur',category:'Makanan',sellPrice:12000,buyPrice:7000,stock:15,minStock:5,unit:'porsi'},
-      {id:'p4',name:'Roti Bakar',category:'Makanan',sellPrice:9000,buyPrice:5000,stock:10,minStock:4,unit:'porsi'},
-      {id:'p5',name:'Protein Bar',category:'Snack',sellPrice:15000,buyPrice:10000,stock:8,minStock:6,unit:'pcs'},
-      {id:'p6',name:'Pisang Cokelat',category:'Snack',sellPrice:6000,buyPrice:3000,stock:20,minStock:8,unit:'pcs'},
+      {id:'p1',name:'Es Teh Manis',category:'Minuman',sellPrice:4000,buyPrice:2000,stock:30,unit:'gelas'},
+      {id:'p2',name:'Air Mineral 600ml',category:'Minuman',sellPrice:4000,buyPrice:2800,stock:40,unit:'botol'},
+      {id:'p3',name:'Nasi Telur',category:'Makanan',sellPrice:12000,buyPrice:7000,stock:15,unit:'porsi'},
+      {id:'p4',name:'Roti Bakar',category:'Makanan',sellPrice:9000,buyPrice:5000,stock:10,unit:'porsi'},
+      {id:'p5',name:'Protein Bar',category:'Snack',sellPrice:15000,buyPrice:10000,stock:8,unit:'pcs'},
+      {id:'p6',name:'Pisang Cokelat',category:'Snack',sellPrice:6000,buyPrice:3000,stock:20,unit:'pcs'},
     ],
     sales: [],
     stockLogs: []
@@ -945,9 +935,6 @@ function renderDashboard(){
   document.getElementById('stat-trx').textContent = todaySales.length;
   document.getElementById('stat-items').textContent = itemCount;
 
-  const lowStock = db.products.filter(p=>p.stock <= p.minStock);
-  document.getElementById('stat-lowstock').textContent = lowStock.length;
-
   const tally = {};
   todaySales.forEach(s => s.items.forEach(i=>{
     if(!tally[i.name]) tally[i.name] = {qty:0, omzet:0, modal:0};
@@ -961,11 +948,6 @@ function renderDashboard(){
   topBody.innerHTML = top.length ? top.map(([name,v])=>
     `<tr><td>${escapeHtml(name)}</td><td>${v.qty}</td><td>${rupiah(v.omzet)}</td><td>${rupiah(v.omzet - v.modal)}</td></tr>`
   ).join('') : `<tr><td colspan="4" style="color:var(--ink-soft);">Belum ada penjualan hari ini.</td></tr>`;
-
-  const lowBody = document.getElementById('low-stock-list');
-  lowBody.innerHTML = lowStock.length ? lowStock.map(p=>
-    `<tr class="row-low"><td>${escapeHtml(p.name)}</td><td>${p.stock} ${escapeHtml(p.unit)}</td><td>${p.minStock}</td></tr>`
-  ).join('') : `<tr><td colspan="3" style="color:var(--ink-soft);">Semua stok aman.</td></tr>`;
 }
 
 /* ---------- Render: Kasir ---------- */
@@ -1128,20 +1110,18 @@ function renderStok(){
   const body = document.getElementById('product-table');
   const list = db.products.filter(p=>p.name.toLowerCase().includes(q));
   body.innerHTML = list.map(p=>{
-    const low = p.stock <= p.minStock;
-    return `<tr class="${low?'row-low':''}">
+    return `<tr>
       <td>${escapeHtml(p.name)}</td>
       <td>${escapeHtml(p.category||'-')}</td>
       <td>${rupiah(p.sellPrice)}</td>
       <td>${p.stock} ${escapeHtml(p.unit||'')}</td>
-      <td>${p.minStock}</td>
-      <td>${low ? '<span class="pill low">Menipis</span>' : '<span class="pill ok">Aman</span>'}</td>
+      <td><span class="pill ok">Aman</span></td>
       <td style="white-space:nowrap;">
         <button class="btn ghost sm" data-act="edit" data-id="${p.id}">Edit</button>
         <button class="btn ghost sm" data-act="del" data-id="${p.id}">Hapus</button>
       </td>
     </tr>`;
-  }).join('') || `<tr><td colspan="7" style="color:var(--ink-soft);">Belum ada produk.</td></tr>`;
+  }).join('') || `<tr><td colspan="6" style="color:var(--ink-soft);">Belum ada produk.</td></tr>`;
 
   body.querySelectorAll('button[data-act]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -1212,11 +1192,9 @@ function openProductModal(id){
     document.getElementById('product-sellprice').value = p.sellPrice;
     document.getElementById('product-buyprice').value = p.buyPrice||'';
     document.getElementById('product-stock').value = p.stock;
-    document.getElementById('product-minstock').value = p.minStock;
   } else {
     document.getElementById('product-modal-title').textContent = 'Produk Baru';
     ['product-name','product-category','product-unit','product-sellprice','product-buyprice','product-stock'].forEach(id=>document.getElementById(id).value='');
-    document.getElementById('product-minstock').value = 5;
   }
   modalProduct.classList.add('active');
 }
@@ -1235,7 +1213,6 @@ document.getElementById('btn-save-product').addEventListener('click', async ()=>
     sellPrice,
     buyPrice: parseFloat(document.getElementById('product-buyprice').value) || 0,
     stock: parseInt(document.getElementById('product-stock').value) || 0,
-    minStock: parseInt(document.getElementById('product-minstock').value) || 0,
   };
   if(id){
     await fs.collection('products').doc(id).update(data);
