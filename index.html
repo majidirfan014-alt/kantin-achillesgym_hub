@@ -133,6 +133,8 @@
   .btn.ghost{background:transparent;border-color:transparent;color:var(--ink-soft);padding:6px 8px;}
   .btn.ghost:hover{color:var(--ink);text-decoration:underline;}
   .btn.sm{padding:5px 10px;font-size:12.5px;min-height:36px;}
+  .btn-icon{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:6px;border:none;background:transparent;cursor:pointer;color:var(--ink-soft);font-size:15px;transition:background .15s,color .15s;}
+  .btn-icon:hover{background:var(--danger-soft);color:var(--danger);}
   .btn:disabled{opacity:.45;cursor:not-allowed;}
 
   .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap;}
@@ -469,7 +471,7 @@
             <button data-filter="adj">Penyesuaian</button>
           </div>
           <table>
-            <thead><tr><th>Waktu</th><th>Produk</th><th>Jenis</th><th>Jumlah</th><th>Catatan</th></tr></thead>
+            <thead><tr><th>Waktu</th><th>Produk</th><th>Jenis</th><th>Jumlah</th><th>Catatan</th><th></th></tr></thead>
             <tbody id="stocklog-table"></tbody>
           </table>
         </div>
@@ -526,7 +528,7 @@
       <div class="card">
         <h3 style="margin-top:0;">Detail Penjualan per Produk</h3>
         <table>
-          <thead><tr><th>Produk</th><th>Qty Terjual</th><th>Omzet</th><th>Modal</th><th>Laba</th></tr></thead>
+          <thead><tr><th>Produk</th><th>Qty Terjual</th><th>Omzet</th><th>Modal</th><th>Laba</th><th></th></tr></thead>
           <tbody id="report-detail"></tbody>
         </table>
       </div>
@@ -1180,8 +1182,13 @@ function renderStockLogs(){
       <td><span class="log-type ${l.type}">${typeLabels[l.type]||l.type}</span></td>
       <td>${sign}${l.qty}</td>
       <td>${escapeHtml(l.note||'-')}</td>
+      <td><button class="btn-icon" data-del-log="${l.id}" title="Hapus catatan">🗑</button></td>
     </tr>`;
-  }).join('') : `<tr><td colspan="5" style="color:var(--ink-soft);">Tidak ada log stok.</td></tr>`;
+  }).join('') : `<tr><td colspan="6" style="color:var(--ink-soft);">Tidak ada log stok.</td></tr>`;
+
+  body.querySelectorAll('button[data-del-log]').forEach(btn=>{
+    btn.addEventListener('click', ()=>deleteStockLog(btn.dataset.delLog));
+  });
 }
 document.getElementById('stocklog-tabs').addEventListener('click', (e)=>{
   const btn = e.target.closest('button[data-filter]');
@@ -1338,12 +1345,15 @@ function renderRiwayat(){
       <td>${rupiah(s.total - profit)}</td>
       <td><span class="pill ${payClass}">${payLabel}</span></td>
       <td>${s.status==='void' ? '<span class="pill void">Dibatalkan</span>' : '<span class="pill ok">Selesai</span>'}</td>
-      <td><button class="btn ghost sm" data-id="${s.id}">Detail</button></td>
+      <td style="white-space:nowrap;"><button class="btn ghost sm" data-id="${s.id}">Detail</button> <button class="btn-icon" data-del-sale="${s.id}" title="Hapus transaksi">🗑</button></td>
     </tr>`;
   }).join('') : `<tr><td colspan="7" style="color:var(--ink-soft);">Tidak ada transaksi pada rentang ini.</td></tr>`;
 
   body.querySelectorAll('button[data-id]').forEach(btn=>{
     btn.addEventListener('click', ()=>openSaleModal(btn.dataset.id));
+  });
+  body.querySelectorAll('button[data-del-sale]').forEach(btn=>{
+    btn.addEventListener('click', ()=>deleteSale(btn.dataset.delSale));
   });
 }
 document.getElementById('filter-from').addEventListener('change', renderRiwayat);
@@ -1451,8 +1461,12 @@ function renderLaporan(){
   const detail = Object.entries(tally).sort((a,b)=>b[1].omzet-a[1].omzet);
   const detailBody = document.getElementById('report-detail');
   detailBody.innerHTML = detail.length ? detail.map(([name,v])=>
-    `<tr><td>${escapeHtml(name)}</td><td>${v.qty}</td><td>${rupiah(v.omzet)}</td><td>${rupiah(v.modal)}</td><td style="font-weight:600;">${rupiah(v.omzet - v.modal)}</td></tr>`
-  ).join('') : `<tr><td colspan="5" style="color:var(--ink-soft);">Tidak ada data penjualan pada periode ini.</td></tr>`;
+    `<tr><td>${escapeHtml(name)}</td><td>${v.qty}</td><td>${rupiah(v.omzet)}</td><td>${rupiah(v.modal)}</td><td style="font-weight:600;">${rupiah(v.omzet - v.modal)}</td><td><button class="btn-icon" data-del-name="${escapeHtml(name)}" title="Hapus transaksi produk ini">🗑</button></td></tr>`
+  ).join('') : `<tr><td colspan="6" style="color:var(--ink-soft);">Tidak ada data penjualan pada periode ini.</td></tr>`;
+
+  detailBody.querySelectorAll('button[data-del-name]').forEach(btn=>{
+    btn.addEventListener('click', ()=> deleteSalesByName(btn.dataset.delName));
+  });
 }
 document.getElementById('report-from').addEventListener('change', renderLaporan);
 document.getElementById('report-to').addEventListener('change', renderLaporan);
@@ -1461,6 +1475,64 @@ document.getElementById('btn-report-reset').addEventListener('click', ()=>{
   document.getElementById('report-to').value='';
   renderLaporan();
 });
+
+/* ---------- Delete: Sales by Product Name (Laporan) ---------- */
+async function deleteSalesByName(productName){
+  if(!confirm(`Hapus SEMUA transaksi yang mengandung "${productName}"? Stok tidak dikembalikan.`)) return;
+  const toDelete = db.sales.filter(s=>s.status!=='void' && s.items.some(i=>i.name===productName));
+  if(!toDelete.length){ showToast('Tidak ada transaksi ditemukan.'); return; }
+  try{
+    const batch = fs.batch();
+    toDelete.forEach(s=>{
+      batch.delete(fs.collection('sales').doc(s.id));
+    });
+    await batch.commit();
+    showToast(`${toDelete.length} transaksi "${productName}" dihapus.`);
+  }catch(e){
+    console.error('Delete sales error:', e);
+    showToast('Gagal menghapus: ' + e.message);
+  }
+}
+
+/* ---------- Delete: Single Sale (Riwayat) ---------- */
+async function deleteSale(saleId){
+  const s = db.sales.find(x=>x.id===saleId);
+  if(!s) return;
+  if(!confirm('Hapus transaksi ini? Stok produk akan dikembalikan.')) return;
+  try{
+    const batch = fs.batch();
+    batch.delete(fs.collection('sales').doc(saleId));
+    if(s.status !== 'void'){
+      s.items.forEach(i=>{
+        const p = db.products.find(x=>x.id===i.productId);
+        if(p){
+          batch.update(fs.collection('products').doc(i.productId), {stock: p.stock + i.qty});
+        }
+        batch.set(fs.collection('stockLogs').doc(uid('log')), {
+          datetime: new Date().toISOString(), productId:i.productId, type:'in', qty:i.qty,
+          note: `Hapus transaksi ${saleId}`
+        });
+      });
+    }
+    await batch.commit();
+    showToast('Transaksi dihapus, stok dikembalikan.');
+  }catch(e){
+    console.error('Delete sale error:', e);
+    showToast('Gagal menghapus: ' + e.message);
+  }
+}
+
+/* ---------- Delete: Stock Log ---------- */
+async function deleteStockLog(logId){
+  if(!confirm('Hapus catatan stok ini?')) return;
+  try{
+    await fs.collection('stockLogs').doc(logId).delete();
+    showToast('Catatan stok dihapus.');
+  }catch(e){
+    console.error('Delete stock log error:', e);
+    showToast('Gagal menghapus: ' + e.message);
+  }
+}
 
 /* ---------- Export CSV ---------- */
 document.getElementById('btn-export-csv').addEventListener('click', ()=>{
