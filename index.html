@@ -716,7 +716,11 @@ function seedData(){
 /* ---------- Utils ---------- */
 function uid(prefix){ return prefix + '_' + Math.random().toString(36).slice(2,9); }
 function rupiah(n){ return 'Rp' + Math.round(n).toLocaleString('id-ID'); }
-function todayStr(d=new Date()){ return d.toISOString().slice(0,10); }
+function localDateStr(dateOrStr){
+  const d = typeof dateOrStr === 'string' ? new Date(dateOrStr) : dateOrStr;
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function todayStr(){ return localDateStr(new Date()); }
 function escapeHtml(str){
   return String(str).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
@@ -922,7 +926,7 @@ function renderDashboard(){
   const today = todayStr();
   document.getElementById('today-label').textContent = new Date().toLocaleDateString('id-ID', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
 
-  const todaySales = db.sales.filter(s => s.status !== 'void' && s.datetime.slice(0,10) === today);
+  const todaySales = db.sales.filter(s => s.status !== 'void' && localDateStr(s.datetime) === today);
   const omzet = todaySales.reduce((sum,s)=>sum+s.total,0);
   const itemCount = todaySales.reduce((sum,s)=>sum + s.items.reduce((a,i)=>a+i.qty,0), 0);
   const profit = todaySales.reduce((sum,s)=>sum + s.items.reduce((a,i)=>{
@@ -1301,8 +1305,8 @@ function renderRiwayat(){
   const from = document.getElementById('filter-from').value;
   const to = document.getElementById('filter-to').value;
   let list = db.sales.slice();
-  if(from) list = list.filter(s=>s.datetime.slice(0,10) >= from);
-  if(to) list = list.filter(s=>s.datetime.slice(0,10) <= to);
+  if(from) list = list.filter(s=>localDateStr(s.datetime) >= from);
+  if(to) list = list.filter(s=>localDateStr(s.datetime) <= to);
 
   const body = document.getElementById('sales-table');
   body.innerHTML = list.length ? list.map(s=>{
@@ -1402,8 +1406,8 @@ function renderLaporan(){
   const from = document.getElementById('report-from').value;
   const to = document.getElementById('report-to').value;
   let list = db.sales.filter(s=>s.status !== 'void');
-  if(from) list = list.filter(s=>s.datetime.slice(0,10) >= from);
-  if(to) list = list.filter(s=>s.datetime.slice(0,10) <= to);
+  if(from) list = list.filter(s=>localDateStr(s.datetime) >= from);
+  if(to) list = list.filter(s=>localDateStr(s.datetime) <= to);
 
   const omzet = list.reduce((sum,s)=>sum+s.total,0);
   const profit = list.reduce((sum,s)=>sum + s.items.reduce((a,i)=>{
@@ -1516,8 +1520,8 @@ document.getElementById('btn-export-csv').addEventListener('click', ()=>{
   const from = document.getElementById('report-from').value;
   const to = document.getElementById('report-to').value;
   let list = db.sales.filter(s=>s.status !== 'void');
-  if(from) list = list.filter(s=>s.datetime.slice(0,10) >= from);
-  if(to) list = list.filter(s=>s.datetime.slice(0,10) <= to);
+  if(from) list = list.filter(s=>localDateStr(s.datetime) >= from);
+  if(to) list = list.filter(s=>localDateStr(s.datetime) <= to);
 
   if(!list.length){ showToast('Tidak ada data untuk diekspor.'); return; }
 
