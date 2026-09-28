@@ -263,20 +263,39 @@
   /* Photo upload */
   .photo-upload{margin-bottom:12px;}
   .photo-upload input[type=file]{display:none;}
+  .photo-upload .req{color:var(--danger);}
   .photo-upload-btn{
-    display:flex;align-items:center;gap:8px;padding:10px;border:2px dashed var(--border);
-    border-radius:8px;cursor:pointer;font-size:13px;color:var(--ink-soft);text-align:center;
-    justify-content:center;transition:border-color .15s;min-height:44px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+    padding:12px;border:2px dashed var(--border);border-radius:8px;cursor:pointer;
+    font-size:13px;color:var(--ink-soft);text-align:center;min-height:96px;
+    transition:border-color .15s,background .15s,box-shadow .15s;background:transparent;
   }
-  .photo-upload-btn:hover{border-color:var(--accent);}
-  .photo-preview{position:relative;display:inline-block;margin-top:8px;}
-  .photo-preview img{width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--border);}
-  .photo-preview .photo-remove{
-    position:absolute;top:-6px;right:-6px;width:24px;height:24px;border-radius:50%;
-    background:var(--danger);color:#fff;border:2px solid #fff;font-size:11px;
-    text-align:center;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  .photo-upload-btn:hover,.photo-upload-btn:focus-visible{border-color:var(--accent);outline:none;}
+  .photo-upload-btn:focus-visible{box-shadow:0 0 0 3px var(--accent-soft);}
+  .photo-upload-btn.processing{opacity:.6;pointer-events:none;cursor:wait;}
+  .photo-empty{display:flex;flex-direction:column;align-items:center;gap:3px;}
+  .photo-empty[hidden]{display:none;}
+  .photo-empty .photo-icon{font-size:22px;line-height:1;}
+  .photo-empty .photo-text{font-weight:600;color:var(--ink);}
+  .photo-empty .photo-sub{font-size:11px;color:var(--ink-soft);}
+  .photo-preview{width:100%;}
+  .photo-preview[hidden]{display:none;}
+  .photo-preview img{
+    display:block;width:100%;max-height:170px;object-fit:cover;
+    border-radius:6px;border:1px solid var(--border);background:#fff;
   }
+  .photo-preview-actions{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  .photo-preview-actions .photo-ok{font-size:11.5px;font-weight:600;color:#2E7D32;}
+  .photo-preview-actions button{
+    border:1px solid var(--border);background:#fff;color:var(--ink);border-radius:6px;
+    padding:4px 10px;font-size:11.5px;transition:border-color .15s,color .15s;
+  }
+  .photo-preview-actions button:hover{border-color:var(--accent);color:var(--accent);}
+  #photo-remove-btn{background:var(--danger);border-color:var(--danger);color:#fff;padding:4px 9px;}
+  #photo-remove-btn:hover{background:var(--danger);border-color:var(--danger);color:#fff;opacity:.85;}
   .photo-label{font-size:11.5px;color:var(--ink-soft);margin-top:4px;}
+  .photo-upload.missing .photo-upload-btn{border-color:var(--danger);background:var(--danger-soft);}
+  .photo-upload.missing .photo-label{color:var(--danger);font-weight:600;}
 
   /* Payment badge */
   .pill.cash{background:#E8F5E9;color:#2E7D32;}
@@ -420,13 +439,25 @@
             <div class="change-line" id="cart-change-row"><span>Kembalian</span><span id="cart-change">Rp0</span></div>
           </div>
           <div class="photo-upload" id="photo-section">
-            <label>Bukti Pembayaran</label>
-            <input type="file" id="cart-proof" accept="image/*" capture="environment">
-            <div class="photo-upload-btn" id="photo-upload-btn">
-              <span>📷 Ambil / Pilih Foto</span>
+            <label>Bukti Pembayaran <span class="req">*</span></label>
+            <input type="file" id="cart-proof" accept="image/jpeg,image/jpg,image/png">
+            <div class="photo-upload-btn" id="photo-upload-btn" role="button" tabindex="0"
+                 aria-label="Ambil atau pilih foto bukti pembayaran">
+              <div class="photo-empty" id="photo-empty">
+                <span class="photo-icon">📷</span>
+                <span class="photo-text">Ambil / Pilih Foto</span>
+                <span class="photo-sub">Kamera atau Galeri &bull; JPG/PNG</span>
+              </div>
+              <div class="photo-preview" id="photo-preview" hidden>
+                <img id="photo-preview-img" alt="Preview bukti pembayaran">
+                <div class="photo-preview-actions">
+                  <span class="photo-ok">&#10003; Foto siap</span>
+                  <button type="button" id="photo-replace-btn">Ganti</button>
+                  <button type="button" id="photo-remove-btn" aria-label="Hapus foto">&#10005;</button>
+                </div>
+              </div>
             </div>
-            <div id="photo-preview-container"></div>
-            <div class="photo-label">Wajib: foto uang tunai atau screenshot QRIS</div>
+            <div class="photo-label" id="photo-hint">Wajib: foto uang tunai atau screenshot QRIS (JPG/PNG, maks 5MB)</div>
           </div>
           <button class="btn primary" id="btn-checkout" style="margin-top:10px;width:100%;">Selesaikan Transaksi</button>
           <button class="btn ghost" id="btn-clear-cart">Kosongkan keranjang</button>
@@ -864,58 +895,142 @@ document.getElementById('pay-toggle').addEventListener('click', (e)=>{
   updateChange();
 });
 
-/* ---------- Photo Upload ---------- */
-document.getElementById('photo-upload-btn').addEventListener('click', ()=>{
-  document.getElementById('cart-proof').click();
+/* ---------- Photo Upload (Bukti Pembayaran) ---------- */
+const PROOF_MAX_BYTES = 5 * 1024 * 1024;
+const PROOF_MAX_DIM = 800;
+const PROOF_QUALITY = 0.6;
+const PROOF_TARGET_BYTES = 350 * 1024;
+const PROOF_TYPES = ['image/jpeg', 'image/jpg', 'image/png'];
+const PROOF_EXT = /\.(jpe?g|png)$/i;
+
+const proofInput = document.getElementById('cart-proof');
+const proofBtn = document.getElementById('photo-upload-btn');
+
+function isAllowedProof(file){
+  const type = (file.type || '').toLowerCase();
+  if(type) return PROOF_TYPES.indexOf(type) !== -1;
+  return PROOF_EXT.test(file.name || '');
+}
+function setProofProcessing(on){
+  proofBtn.classList.toggle('processing', !!on);
+  const label = document.querySelector('#photo-empty .photo-text');
+  if(label) label.textContent = on ? 'Memproses foto...' : 'Ambil / Pilih Foto';
+}
+function openProofPicker(){
+  if(proofBtn.classList.contains('processing')) return;
+  proofInput.click();
+}
+proofBtn.addEventListener('click', openProofPicker);
+proofBtn.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar'){
+    e.preventDefault();
+    openProofPicker();
+  }
 });
-document.getElementById('cart-proof').addEventListener('change', function(){
-  const file = this.files[0];
+proofInput.addEventListener('cancel', ()=>{ /* user membatalkan: biarkan kondisi tetap */ });
+proofInput.addEventListener('change', function(){
+  const file = this.files && this.files[0];
+  this.value = '';
   if(!file) return;
-  if(file.size > 5 * 1024 * 1024){ showToast('Ukuran foto maks 5MB.'); return; }
-  compressImage(file, 800, 0.6).then(compressed=>{
-    paymentProofBase64 = compressed;
+  handleProofFile(file);
+});
+
+async function handleProofFile(file){
+  if(!isAllowedProof(file)){
+    showToast('Format foto harus JPG, JPEG, atau PNG.');
+    return;
+  }
+  if(file.size > PROOF_MAX_BYTES){
+    showToast('Ukuran foto maksimal 5MB.');
+    return;
+  }
+  setProofProcessing(true);
+  try{
+    paymentProofBase64 = await compressImage(file, PROOF_MAX_DIM, PROOF_QUALITY);
     renderPhotoPreview();
     updateChange();
-  });
-});
+  }catch(err){
+    console.error('Photo upload error:', err);
+    paymentProofBase64 = null;
+    renderPhotoPreview();
+    updateChange();
+    showToast('Foto tidak dapat dibaca. Silakan pilih foto lain.');
+  }finally{
+    setProofProcessing(false);
+  }
+}
+
+function dataUrlBytes(dataUrl){
+  const i = dataUrl.indexOf(',');
+  return Math.round((dataUrl.length - i - 1) * 3 / 4);
+}
 function compressImage(file, maxDim, quality){
-  return new Promise((resolve)=>{
+  return new Promise((resolve, reject)=>{
     const reader = new FileReader();
+    reader.onerror = ()=> reject(new Error('Gagal membaca file.'));
+    reader.onabort = ()=> reject(new Error('Membaca file dibatalkan.'));
     reader.onload = (e)=>{
       const img = new Image();
+      img.onerror = ()=> reject(new Error('File bukan gambar yang valid.'));
       img.onload = ()=>{
-        let w = img.width, h = img.height;
-        if(w > maxDim || h > maxDim){
-          if(w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
-          else { w = Math.round(w * maxDim / h); h = maxDim; }
-        }
-        const c = document.createElement('canvas');
-        c.width = w; c.height = h;
-        c.getContext('2d').drawImage(img, 0, 0, w, h);
-        resolve(c.toDataURL('image/jpeg', quality));
+        try{
+          let w = img.width, h = img.height;
+          if(w < 1 || h < 1) throw new Error('Ukuran gambar tidak valid.');
+          if(w > maxDim || h > maxDim){
+            if(w > h){ h = Math.round(h * maxDim / w); w = maxDim; }
+            else { w = Math.round(w * maxDim / h); h = maxDim; }
+          }
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          const ctx = c.getContext('2d');
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          let q = quality;
+          let out = c.toDataURL('image/jpeg', q);
+          while(dataUrlBytes(out) > PROOF_TARGET_BYTES && q > 0.3){
+            q = Math.round((q - 0.15) * 100) / 100;
+            out = c.toDataURL('image/jpeg', q);
+          }
+          resolve(out);
+        }catch(err){ reject(err); }
       };
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
   });
 }
+
 function renderPhotoPreview(){
-  const container = document.getElementById('photo-preview-container');
-  if(!paymentProofBase64){
-    container.innerHTML = '';
-    return;
-  }
-  container.innerHTML = `<div class="photo-preview">
-    <img src="${paymentProofBase64}" alt="Bukti">
-    <div class="photo-remove" id="photo-remove-btn">✕</div>
-  </div>`;
-  document.getElementById('photo-remove-btn').addEventListener('click', ()=>{
-    paymentProofBase64 = null;
-    document.getElementById('cart-proof').value = '';
-    renderPhotoPreview();
-    updateChange();
-  });
+  const has = !!paymentProofBase64;
+  document.getElementById('photo-empty').hidden = has;
+  const preview = document.getElementById('photo-preview');
+  const img = document.getElementById('photo-preview-img');
+  preview.hidden = !has;
+  if(has) img.src = paymentProofBase64;
+  else img.removeAttribute('src');
+  updateProofRequirement();
 }
+function updateProofRequirement(){
+  const section = document.getElementById('photo-section');
+  const hint = document.getElementById('photo-hint');
+  const attention = !paymentProofBase64 && cart.length > 0 && paymentMethod !== null;
+  section.classList.toggle('missing', attention);
+  hint.textContent = attention
+    ? 'Belum ada foto — wajib unggah bukti uang tunai / screenshot QRIS.'
+    : 'Wajib: foto uang tunai atau screenshot QRIS (JPG/PNG, maks 5MB)';
+}
+document.getElementById('photo-remove-btn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  paymentProofBase64 = null;
+  proofInput.value = '';
+  renderPhotoPreview();
+  updateChange();
+});
+document.getElementById('photo-replace-btn').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  openProofPicker();
+});
 function clearPayment(){
   paymentMethod = null;
   paymentProofBase64 = null;
@@ -924,7 +1039,8 @@ function clearPayment(){
   });
   document.getElementById('cash-fields').style.opacity = '1';
   document.getElementById('cash-fields').style.pointerEvents = 'auto';
-  document.getElementById('cart-proof').value = '';
+  proofInput.value = '';
+  setProofProcessing(false);
   renderPhotoPreview();
 }
 
@@ -1046,9 +1162,10 @@ function updateChange(){
   row.querySelector('span').textContent = change < 0 ? 'Kurang' : 'Kembalian';
   const hasItems = cart.length > 0 && total > 0;
   const methodOk = paymentMethod !== null;
-  const proofOk = paymentProofBase64 !== null;
+  const proofOk = !!paymentProofBase64;
   const cashOk = paymentMethod !== 'cash' || paid >= total;
   document.getElementById('btn-checkout').disabled = !(hasItems && methodOk && proofOk && cashOk);
+  updateProofRequirement();
 }
 document.getElementById('pos-search').addEventListener('input', renderKasir);
 document.getElementById('cart-paid').addEventListener('input', updateChange);
@@ -1061,7 +1178,12 @@ document.getElementById('btn-checkout').addEventListener('click', async function
   if(cart.length===0) return;
   const total = cartTotal();
   if(!paymentMethod){ showToast('Pilih metode pembayaran.'); return; }
-  if(!paymentProofBase64){ showToast('Unggah bukti pembayaran.'); return; }
+  if(!paymentProofBase64){
+    document.getElementById('photo-section').classList.add('missing');
+    document.getElementById('photo-hint').textContent = 'Belum ada foto — wajib unggah bukti uang tunai / screenshot QRIS.';
+    showToast('Wajib unggah bukti pembayaran (foto uang tunai / screenshot QRIS).');
+    return;
+  }
   if(paymentMethod === 'cash'){
     const paid = parseFloat(document.getElementById('cart-paid').value) || 0;
     if(paid < total){ showToast('Uang dibayar kurang dari total.'); return; }
@@ -1082,7 +1204,7 @@ document.getElementById('btn-checkout').addEventListener('click', async function
       datetime: new Date().toISOString(),
       items, total, paid, change: paid-total,
       paymentMethod,
-      paymentProof: paymentProofBase64 || '',
+      paymentProof: paymentProofBase64,
       status: 'completed'
     };
 
